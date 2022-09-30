@@ -225,6 +225,7 @@ class PpoAgent(object):
 
     @logger.profile("update")
     def update(self):
+        verbose = False
 
         #Some logic gathering best ret, rooms etc using MPI.
         temp = sum(MPI.COMM_WORLD.allgather(self.local_rooms), [])
@@ -239,6 +240,7 @@ class PpoAgent(object):
         self.best_ret = max(temp)
 
         eprews = MPI.COMM_WORLD.allgather(np.mean(list(self.I.statlists["eprew"])))
+        eprews_last10 = MPI.COMM_WORLD.allgather(self.I.statlists["eprew"][-10:])
         local_best_rets = MPI.COMM_WORLD.allgather(self.local_best_ret)
         n_rooms = sum(MPI.COMM_WORLD.allgather([len(self.local_rooms)]), [])
 
@@ -247,11 +249,12 @@ class PpoAgent(object):
             logger.info(f"Best return {self.best_ret}")
             logger.info(f"Best local return {sorted(local_best_rets)}")
             logger.info(f"eprews {sorted(eprews)}")
+            logger.info(f"eprews_last10 {eprews_last10}")
             logger.info(f"n_rooms {sorted(n_rooms)}")
             logger.info(f"Extrinsic coefficient {self.ext_coeff}")
             logger.info(f"Gamma {self.gamma}")
             logger.info(f"Gamma ext {self.gamma_ext}")
-            logger.info(f"All scores {sorted(self.scores)}")
+            logger.info(f"All scores {sorted(self.scores, reverse=True)}")
 
 
         #Normalize intrinsic rewards.
@@ -353,7 +356,6 @@ class PpoAgent(object):
                 (self.stochpol.ph_new, self.I.buf_news),
             ])
 
-        verbose = True
         if verbose and self.is_log_leader:
             samples = np.prod(self.I.buf_advs.shape)
             logger.info("buffer shape %s, samples_per_mpi=%i, mini_per_mpi=%i, samples=%i, mini=%i " % (
