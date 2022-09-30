@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+import warnings
+warnings.filterwarnings('ignore')
+
+
 import functools
 import os
 
@@ -13,6 +17,8 @@ from ppo_agent import PpoAgent
 from utils import set_global_seeds
 from vec_env import VecFrameStack
 
+import warnings
+warnings.filterwarnings('ignore')
 
 def train(*, env_id, num_env, hps, num_timesteps, seed):
     venv = VecFrameStack(
@@ -33,6 +39,7 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
     ob_space = venv.observation_space
     ac_space = venv.action_space
     gamma = hps.pop('gamma')
+    nsteps = hps.pop('nsteps')
     policy = {'rnn': CnnGruPolicy,
               'cnn': CnnPolicy}[hps.pop('policy')]
     agent = PpoAgent(
@@ -55,18 +62,19 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
         nminibatches=hps.pop('nminibatches'),
         lr=hps.pop('lr'),
         cliprange=0.1,
-        nsteps=128,
-        ent_coef=0.001,
+        nsteps=nsteps,
+        ent_coef=hps.pop('ent_coef'),
         max_grad_norm=hps.pop('max_grad_norm'),
         use_news=hps.pop("use_news"),
         comm=MPI.COMM_WORLD if MPI.COMM_WORLD.Get_size() > 1 else None,
         update_ob_stats_every_step=hps.pop('update_ob_stats_every_step'),
         int_coeff=hps.pop('int_coeff'),
         ext_coeff=hps.pop('ext_coeff'),
+        verbose=hps.pop('verbose')
     )
     agent.start_interaction([venv])
     if hps.pop('update_ob_stats_from_random_agent'):
-        agent.collect_random_statistics(num_timesteps=128*50)
+        agent.collect_random_statistics(num_timesteps=nsteps*50, num_steps=nsteps)
     assert len(hps) == 0, "Unused hyperparameters: %s" % list(hps.keys())
 
     counter = 0
@@ -92,11 +100,14 @@ def main():
     parser = arg_parser()
     add_env_params(parser)
     parser.add_argument('--num-timesteps', type=int, default=int(1e12))
+    parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--num_env', type=int, default=32)
+    parser.add_argument('--num_steps', type=int, default=128)
     parser.add_argument('--use_news', type=int, default=0)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--gamma_ext', type=float, default=0.99)
     parser.add_argument('--lam', type=float, default=0.95)
+    parser.add_argument('--ent_coef', type=float, default=0.001)
     parser.add_argument('--update_ob_stats_every_step', type=int, default=0)
     parser.add_argument('--update_ob_stats_independently_per_gpu', type=int, default=0)
     parser.add_argument('--update_ob_stats_from_random_agent', type=int, default=1)
@@ -106,6 +117,7 @@ def main():
     parser.add_argument('--int_coeff', type=float, default=1.)
     parser.add_argument('--ext_coeff', type=float, default=2.)
     parser.add_argument('--dynamics_bonus', type=int, default=0)
+    parser.add_argument('--verbose', type=int, default=1)
 
 
     args = parser.parse_args()
@@ -124,7 +136,9 @@ def main():
         frame_stack=4,
         nminibatches=4,
         nepochs=4,
-        lr=0.0001,
+        nsteps=args.num_steps,
+        lr=args.lr,
+        ent_coef=args.ent_coef,
         max_grad_norm=0.0,
         use_news=args.use_news,
         gamma=args.gamma,
@@ -138,8 +152,10 @@ def main():
         policy=args.policy,
         int_coeff=args.int_coeff,
         ext_coeff=args.ext_coeff,
-        dynamics_bonus = args.dynamics_bonus
+        dynamics_bonus = args.dynamics_bonus,
+        verbose=args.verbose
     )
+    print(hps)
 
     tf_util.make_session(make_default=True)
     train(env_id=args.env, num_env=args.num_env, seed=seed,

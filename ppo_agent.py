@@ -14,6 +14,7 @@ from console_util import fmt_row
 from mpi_util import MpiAdamOptimizer, RunningMeanStd, sync_from_root
 
 NO_STATES = ['NO_STATES']
+tf.logging.set_verbosity(tf.logging.FATAL)
 
 class SemicolonList(list):
     def __str__(self):
@@ -108,6 +109,7 @@ class PpoAgent(object):
                  update_ob_stats_every_step=True,
                  int_coeff=None,
                  ext_coeff=None,
+                 verbose=0,
                  ):
         self.lr = lr
         self.ext_coeff = ext_coeff
@@ -195,6 +197,7 @@ class PpoAgent(object):
         sync_from_root(tf.get_default_session(), allvars) #Syncs initialization across mpi workers.
         self.t0 = time.time()
         self.global_tcount = 0
+        self.verbose=verbose
 
     def start_interaction(self, venvs, disable_policy_update=False):
         self.I = InteractionState(ob_space=self.ob_space, ac_space=self.ac_space,
@@ -203,7 +206,7 @@ class PpoAgent(object):
         self.disable_policy_update = disable_policy_update
         self.recorder = Recorder(nenvs=self.I.nenvs, score_multiple=venvs[0].score_multiple)
 
-    def collect_random_statistics(self, num_timesteps):
+    def collect_random_statistics(self, num_timesteps, num_steps):
         #Initializes observation normalization with data from random agent.
         all_ob = []
         for lump in range(self.I.nlump):
@@ -214,7 +217,7 @@ class PpoAgent(object):
                 self.I.venvs[lump].step_async(acs)
                 ob, _, _, _ = self.I.venvs[lump].step_wait()
                 all_ob.append(ob)
-                if len(all_ob) % (128 * self.I.nlump) == 0:
+                if len(all_ob) % (num_steps * self.I.nlump) == 0:
                     ob_ = np.asarray(all_ob).astype(np.float32).reshape((-1, *self.ob_space.shape))
                     self.stochpol.ob_rms.update(ob_[:,:,:,-1:])
                     all_ob.clear()
@@ -225,7 +228,7 @@ class PpoAgent(object):
 
     @logger.profile("update")
     def update(self):
-        verbose = False
+        verbose = self.verbose
 
         #Some logic gathering best ret, rooms etc using MPI.
         temp = sum(MPI.COMM_WORLD.allgather(self.local_rooms), [])
@@ -240,7 +243,7 @@ class PpoAgent(object):
         self.best_ret = max(temp)
 
         eprews = MPI.COMM_WORLD.allgather(np.mean(list(self.I.statlists["eprew"])))
-        eprews_last10 = MPI.COMM_WORLD.allgather(self.I.statlists["eprew"][-10:])
+        eprews_last10 = MPI.COMM_WORLD.allgather(list(self.I.statlists["eprew"])[-10:])
         local_best_rets = MPI.COMM_WORLD.allgather(self.local_best_ret)
         n_rooms = sum(MPI.COMM_WORLD.allgather([len(self.local_rooms)]), [])
 

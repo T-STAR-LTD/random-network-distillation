@@ -3,7 +3,6 @@ from mpi4py import MPI
 import os, numpy as np
 import platform
 import tensorflow as tf
-
 def sync_from_root(sess, variables, comm=None):
     """
     Send the root node's parameters to every worker.
