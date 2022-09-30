@@ -53,7 +53,8 @@ def guess_available_gpus(n_gpus=None):
     if os.path.exists(nvidia_dir):
         n_gpus = len(os.listdir(nvidia_dir))
         return list(range(n_gpus))
-    raise Exception("Couldn't guess the available gpus on this machine")
+    return [0]
+    # raise Exception("Couldn't guess the available gpus on this machine")
 
 
 def setup_mpi_gpus():
